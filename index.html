@@ -255,7 +255,7 @@ function renderTable() {
       var cell = (state[co.id] && state[co.id][i]) ? state[co.id][i] : {status:'empty', user:''};
       var cls = cell.status === 'active' ? 'cell-active' : cell.status === 'done' ? 'cell-done' : cell.status === 'na' ? 'cell-na' : 'cell-empty';
       var label = cell.status === 'active' ? 'In Progress' : cell.status === 'done' ? 'Complete' : cell.status === 'na' ? 'N/A' : '';
-      var name = cell.status === 'na' ? '' : (cell.user || '');
+      var name = cell.user || '';
       html += '<td><button class="cell-btn ' + cls + '" onclick="openModal(\'' + co.id.replace(/'/g,"\\'") + '\',' + i + ',\'' + co.name.replace(/'/g,"\\'") + '\')">';
       html += '<span class="cell-name">' + name + '</span><span class="cell-status-label">' + label + '</span>';
       html += '</button></td>';
@@ -274,7 +274,7 @@ function updateStats() {
       if (!c) return;
       total++;
       if (c.status === 'active') active++;
-      if (c.status === 'done') done++;
+      if (c.status === 'done' || c.status === 'na') done++;
     });
   });
   document.getElementById('statTotal').textContent = total;
@@ -302,7 +302,7 @@ function setCell(status) {
   var id = modalTarget.companyId, i = modalTarget.colIdx;
   var user = document.getElementById('modalUser').value || '';
   if (!state[id]) state[id] = {};
-  state[id][i] = {status: status, user: (status === 'empty' || status === 'na') ? '' : user};
+  state[id][i] = {status: status, user: status === 'empty' ? '' : user};
   renderTable();
   saveToFirebase();
   closeModal();
