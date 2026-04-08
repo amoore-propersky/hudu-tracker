@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hudu Progress Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Arial, sans-serif; background: #1a1a2e; color: #eee; padding: 20px; }
+h1 { color: #4fc3f7; margin-bottom: 6px; font-size: 1.4em; }
+.subtitle { color: #aaa; font-size: 0.85em; margin-bottom: 16px; }
+.controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+button { padding: 7px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.85em; font-weight: bold; }
+.btn-export { background: #1976d2; color: #fff; }
+.btn-export:hover { background: #1565c0; }
+.sync-status { font-size: 0.8em; padding: 5px 10px; border-radius: 6px; background: #1e1e35; border: 1px solid #333; color: #aaa; }
+.sync-status.synced { color: #66bb6a; border-color: #2e7d32; }
+.sync-status.syncing { color: #4fc3f7; border-color: #1565c0; }
+.sync-status.error { color: #ef5350; border-color: #c62828; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 0.78em; color: #ccc; }
+.legend-dot { width: 14px; height: 14px; border-radius: 3px; }
+.stats-bar { display: flex; gap: 14px; margin-bottom: 12px; flex-wrap: wrap; }
+.stat { background: #1e1e35; border-radius: 6px; padding: 6px 14px; font-size: 0.82em; border: 1px solid #333; }
+.stat span { color: #4fc3f7; font-weight: bold; font-size: 1.1em; }
+.table-wrap { overflow: auto; max-height: 70vh; border-radius: 8px; border: 1px solid #333; }
+table { border-collapse: collapse; font-size: 0.78em; }
+thead th { background: #0d1b2a; color: #4fc3f7; padding: 8px 6px; border: 1px solid #333; white-space: normal; word-break: normal; min-width: 70px; text-align: center; position: sticky; top: 0; z-index: 10; }
+thead th:first-child { left: 0; z-index: 20; background: #0d1b2a; min-width: 180px; text-align: left; }
+thead th:nth-child(2) { left: 180px; z-index: 20; background: #0d1b2a; min-width: 90px; text-align: left; }
+tbody td { border: 1px solid #2a2a3a; padding: 0; vertical-align: middle; background: #12121f; }
+tbody tr:hover td { background: #1e2a3a !important; }
+.company-name { padding: 5px 8px; white-space: nowrap; font-weight: bold; color: #e0e0e0; position: sticky; left: 0; background: #1a1a30; z-index: 5; min-width: 180px; }
+.company-id { padding: 5px 8px; white-space: nowrap; color: #aaa; font-size: 0.85em; position: sticky; left: 180px; background: #1a1a30; z-index: 5; min-width: 90px; }
+.cell-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 44px; cursor: pointer; border: none; font-size: 0.7em; transition: filter 0.15s; padding: 2px; gap: 1px; }
+.cell-btn:hover { filter: brightness(1.2); }
+.cell-empty { background: #1e1e30; color: #555; }
+.cell-active { background: #1565c0; color: #fff; }
+.cell-done { background: #2e7d32; color: #fff; }
+.cell-na { background: #5a4a00; color: #ccc; }
+.cell-name { font-weight: bold; font-size: 0.75em; white-space: nowrap; overflow: hidden; max-width: 78px; text-overflow: ellipsis; }
+.cell-status-label { font-size: 0.65em; opacity: 0.85; }
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center; }
+.modal-overlay.open { display: flex; }
+.modal { background: #1e1e35; border-radius: 10px; padding: 24px; min-width: 280px; border: 1px solid #444; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+.modal h3 { color: #4fc3f7; margin-bottom: 4px; }
+.modal-sub { color: #aaa; font-size: 0.8em; margin-bottom: 16px; }
+.modal label { display: block; color: #ccc; font-size: 0.85em; margin-bottom: 6px; }
+.modal select { width: 100%; margin-bottom: 14px; background: #2a2a4a; border: 1px solid #444; color: #eee; padding: 6px 10px; border-radius: 6px; font-size: 0.85em; }
+.modal-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-active { background: #1565c0; color: #fff; flex: 1; }
+.btn-done { background: #2e7d32; color: #fff; flex: 1; }
+.btn-na { background: #7a6500; color: #fff; flex: 1; }
+.btn-unset { background: #555; color: #fff; flex: 1; }
+.btn-cancel { background: #333; color: #ccc; flex: 1; }
+</style>
+</head>
+<body>
+
+<h1>Hudu Platform Re-release Tracker</h1>
+<p class="subtitle">Click any cell to take ownership and set status</p>
+
+<div class="controls">
+  <button class="btn-export" onclick="exportExcel()">⬇ Export to Excel</button>
+  <div class="sync-status" id="syncStatus">Connecting...</div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#1e1e30;border:1px solid #444"></div> Empty</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#1565c0"></div> In Progress</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#2e7d32"></div> Complete</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#5a4a00;border:1px solid #888"></div> N/A</div>
+</div>
+
+<div class="stats-bar">
+  <div class="stat">Total Cells: <span id="statTotal">0</span></div>
+  <div class="stat">In Progress: <span id="statActive">0</span></div>
+  <div class="stat">Complete: <span id="statDone">0</span></div>
+  <div class="stat">% Done: <span id="statPct">0%</span></div>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead id="thead"></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h3 id="modalTitle"></h3>
+    <div class="modal-sub" id="modalSub"></div>
+    <label>Assign To:
+      <select id="modalUser">
+        <option value="">— Select name —</option>
+      </select>
+    </label>
+    <div class="modal-actions">
+      <button class="btn-active" onclick="setCell('active')">▶ In Progress</button>
+      <button class="btn-done" onclick="setCell('done')">✔ Complete</button>
+      <button class="btn-na" onclick="setCell('na')">🚫 N/A</button>
+      <button class="btn-unset" onclick="setCell('empty')">✖ Clear</button>
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var FIREBASE_URL = 'https://hudu-tracker-default-rtdb.firebaseio.com/tracker.json';
+
+var TEAM = ["Anthony B","MK","Juan J","Andrew M","Mike Z","Arthur S","Taylor E","Kalin G","Charlie D","Daine V","Matt D"];
+
+var COMPANIES = [
+  {name:"Alex's Lemonade Stand Foundation",id:"ALSF"},
+  {name:"Ambulatory Surgery Center St. Mary Medical Center",id:"ASCM"},
+  {name:"Attleboro Wealth Management",id:"AWM"},
+  {name:"AW Painting and General Contractors",id:"AWP"},
+  {name:"B&B Systems",id:"BBDS"},
+  {name:"Barry Friter",id:"DBF"},
+  {name:"Brookside Country Club",id:"BSCC"},
+  {name:"Color Works Graphics",id:"CW"},
+  {name:"Committee on Sustainability Assessment",id:"COSA"},
+  {name:"Datacap Systems, Inc",id:"DSI"},
+  {name:"Detroit Action Tides Advocacy",id:"DAO"},
+  {name:"DJS Associates",id:"DJS"},
+  {name:"Ear, Nose & Throat Specialists of Northern VA",id:"ENTNV"},
+  {name:"eFamilyCare",id:"EFC"},
+  {name:"Egbert & Barnes P.C.",id:"ENB"},
+  {name:"Erin Marchon",id:"Erin Marchon"},
+  {name:"ETHOS Treatment",id:"ETHOS"},
+  {name:"Evalution Leadership LLC",id:"EVAL"},
+  {name:"Families Forward Philadelphia",id:"FFP"},
+  {name:"Federal Compliance Solutions",id:"FCS"},
+  {name:"Ferko Services",id:"FERKO"},
+  {name:"Forensic Storage Technology Center",id:"FSTC"},
+  {name:"Gitomer & Berenholz",id:"GNB"},
+  {name:"Greater Philadelphia Community Alliance",id:"GPCA"},
+  {name:"Halyard LLC",id:"HYRD"},
+  {name:"Hive Power Engineering LLC",id:"HIVE"},
+  {name:"Human Services Inc.",id:"HSI"},
+  {name:"IBEW",id:"IBEW"},
+  {name:"Inhabit Architecture",id:"INHB"},
+  {name:"Intercommunity Action",id:"ICA"},
+  {name:"Janice Kunst",id:"JK"},
+  {name:"Jesse Gil",id:"JGIL"},
+  {name:"Landcore Engineering Consultants",id:"LAND"},
+  {name:"McDevitt Wellness LLC",id:"MDW"},
+  {name:"Mental Health Consultants",id:"MHC"},
+  {name:"Mission First Tactical",id:"MFT"},
+  {name:"Montgomery Integrative Health",id:"MIH"},
+  {name:"North Field Capital",id:"NFC"},
+  {name:"Northern Children Services",id:"NCS"},
+  {name:"O'Donnell & Naccarato",id:"ONN"},
+  {name:"One Pennsylvania",id:"OPA"},
+  {name:"Out There Outfitters",id:"OTO"},
+  {name:"Passanante's Home Food Services",id:"PHFS"},
+  {name:"Pemco Industries Inc",id:"PEMCO"},
+  {name:"Pennsylvania Dermatology Group",id:"PDG"},
+  {name:"Performance Kitchens",id:"PKH"},
+  {name:"Primex Garden Center",id:"PGC"},
+  {name:"Rhino Investment Partners",id:"RIP"},
+  {name:"Richard Bank",id:"BANK"},
+  {name:"Robert M. Haas Associates Inc.",id:"HAAS"},
+  {name:"Roslyn Valley Auto Care",id:"RVAC"},
+  {name:"Select Living Management",id:"SLM"},
+  {name:"Special Equestrians",id:"SEQ"},
+  {name:"State Innovation Exchange",id:"SIX"},
+  {name:"Tandem Legal",id:"TNDM"},
+  {name:"The Alliance of Community Service",id:"TACSP"},
+  {name:"Toner Architects",id:"TA"},
+  {name:"Trilogy Health Partners",id:"THP"},
+  {name:"Tristar Clinical Investigations",id:"TCI"},
+  {name:"Valentine Foundation",id:"VLFD"},
+  {name:"Vasoli Electric Company Inc.",id:"VEC"},
+  {name:"We The People Action Fund",id:"WTP"}
+];
+
+var COLUMNS = [
+  "Overview","Photos","Alarm Codes","Backup","Email","File Sharing","Internet/WAN",
+  "Locations","Managed App/Subscription","Managed BDR Appliance","Managed Cold Spare (PC)",
+  "Managed DNS Domain","Managed ISP Gateway","Managed Mobile Device","Managed NAS",
+  "Managed PBX","Managed Printer (Local)","Managed Printer (Network)","Managed Server",
+  "Managed SSL Certificate","Managed UPS","Managed VPN","Managed Workstation",
+  "Network Router","Network Switch","Office Licenses","People","Phone Vendors",
+  "Remote Access","Surveillance","Wireless","Wireless Access Point"
+];
+
+var state = {};
+var modalTarget = null;
+var pollInterval = null;
+
+function syncStatus(msg, cls) {
+  var el = document.getElementById('syncStatus');
+  el.textContent = msg;
+  el.className = 'sync-status' + (cls ? ' ' + cls : '');
+}
+
+function buildUI() {
+  var mu = document.getElementById('modalUser');
+  TEAM.forEach(function(name) {
+    var o = document.createElement('option');
+    o.value = name; o.textContent = name; mu.appendChild(o);
+  });
+  var thead = document.getElementById('thead');
+  var h = '<tr><th style="text-align:left">Company Name</th><th style="text-align:left">Company ID</th>';
+  COLUMNS.forEach(function(c) { h += '<th>' + c + '</th>'; });
+  thead.innerHTML = h + '</tr>';
+}
+
+function loadFromFirebase() {
+  fetch(FIREBASE_URL)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data) {
+        state = data;
+      } else {
+        initEmptyState();
+      }
+      renderTable();
+      syncStatus('Live — all changes sync instantly', 'synced');
+    })
+    .catch(function() {
+      syncStatus('Connection error — check Firebase URL', 'error');
+      initEmptyState();
+      renderTable();
+    });
+}
+
+function saveToFirebase() {
+  syncStatus('Saving...', 'syncing');
+  fetch(FIREBASE_URL, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(state)
+  })
+  .then(function() { syncStatus('Live — all changes sync instantly', 'synced'); })
+  .catch(function() { syncStatus('Save failed — check connection', 'error'); });
+}
+
+function initEmptyState() {
+  COMPANIES.forEach(function(c) {
+    if (!state[c.id]) {
+      state[c.id] = {};
+      COLUMNS.forEach(function(_, i) { state[c.id][i] = {status:'empty', user:''}; });
+    }
+  });
+}
+
+function renderTable() {
+  var tbody = document.getElementById('tbody');
+  var html = '';
+  COMPANIES.forEach(function(co) {
+    html += '<tr><td class="company-name">' + co.name + '</td><td class="company-id">' + co.id + '</td>';
+    COLUMNS.forEach(function(_, i) {
+      var cell = (state[co.id] && state[co.id][i]) ? state[co.id][i] : {status:'empty', user:''};
+      var cls = cell.status === 'active' ? 'cell-active' : cell.status === 'done' ? 'cell-done' : cell.status === 'na' ? 'cell-na' : 'cell-empty';
+      var label = cell.status === 'active' ? 'In Progress' : cell.status === 'done' ? 'Complete' : cell.status === 'na' ? 'N/A' : '';
+      var name = cell.status === 'na' ? '' : (cell.user || '');
+      html += '<td><button class="cell-btn ' + cls + '" onclick="openModal(\'' + co.id.replace(/'/g,"\\'") + '\',' + i + ',\'' + co.name.replace(/'/g,"\\'") + '\')">';
+      html += '<span class="cell-name">' + name + '</span><span class="cell-status-label">' + label + '</span>';
+      html += '</button></td>';
+    });
+    html += '</tr>';
+  });
+  tbody.innerHTML = html;
+  updateStats();
+}
+
+function updateStats() {
+  var total = 0, active = 0, done = 0;
+  COMPANIES.forEach(function(co) {
+    COLUMNS.forEach(function(_, i) {
+      var c = state[co.id] && state[co.id][i];
+      if (!c) return;
+      total++;
+      if (c.status === 'active') active++;
+      if (c.status === 'done') done++;
+    });
+  });
+  document.getElementById('statTotal').textContent = total;
+  document.getElementById('statActive').textContent = active;
+  document.getElementById('statDone').textContent = done;
+  document.getElementById('statPct').textContent = total ? Math.round(done / total * 100) + '%' : '0%';
+}
+
+function openModal(companyId, colIdx, companyName) {
+  modalTarget = {companyId: companyId, colIdx: colIdx};
+  document.getElementById('modalTitle').textContent = COLUMNS[colIdx];
+  document.getElementById('modalSub').textContent = companyName;
+  var cell = (state[companyId] && state[companyId][colIdx]) ? state[companyId][colIdx] : {status:'empty', user:''};
+  document.getElementById('modalUser').value = cell.user || '';
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+  modalTarget = null;
+}
+
+function setCell(status) {
+  if (!modalTarget) return;
+  var id = modalTarget.companyId, i = modalTarget.colIdx;
+  var user = document.getElementById('modalUser').value || '';
+  if (!state[id]) state[id] = {};
+  state[id][i] = {status: status, user: (status === 'empty' || status === 'na') ? '' : user};
+  renderTable();
+  saveToFirebase();
+  closeModal();
+}
+
+function exportExcel() {
+  var wb = XLSX.utils.book_new();
+  var header = ['Company Name', 'Company ID'].concat(COLUMNS);
+  var rows = [header];
+  COMPANIES.forEach(function(co) {
+    var row = [co.name, co.id];
+    COLUMNS.forEach(function(_, i) {
+      var c = (state[co.id] && state[co.id][i]) ? state[co.id][i] : {status:'empty', user:''};
+      row.push(c.status === 'active' ? '[WIP] ' + c.user : c.status === 'done' ? '[Done] ' + c.user : c.status === 'na' ? 'N/A' : '');
+    });
+    rows.push(row);
+  });
+  var ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:42},{wch:14}].concat(COLUMNS.map(function() { return {wch:20}; }));
+  ws['!freeze'] = {xSplit:2, ySplit:1, topLeftCell:'C2', state:'frozen'};
+  XLSX.utils.book_append_sheet(wb, ws, 'Progress');
+
+  var sum = [['Team Member','In Progress','Complete','N/A','Total']];
+  TEAM.forEach(function(name) {
+    var wip = 0, done = 0, na = 0;
+    COMPANIES.forEach(function(co) {
+      COLUMNS.forEach(function(_, i) {
+        var c = state[co.id] && state[co.id][i];
+        if (c && c.user === name) {
+          if (c.status === 'active') wip++;
+          if (c.status === 'done') done++;
+          if (c.status === 'na') na++;
+        }
+      });
+    });
+    sum.push([name, wip, done, na, wip + done + na]);
+  });
+  var ws2 = XLSX.utils.aoa_to_sheet(sum);
+  ws2['!cols'] = [{wch:16},{wch:14},{wch:12},{wch:8},{wch:10}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Team Summary');
+  XLSX.writeFile(wb, 'Hudu_Progress_Tracker.xlsx');
+}
+
+// Poll Firebase every 15 seconds to pick up changes from other users
+function startPolling() {
+  pollInterval = setInterval(function() {
+    fetch(FIREBASE_URL)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data) { state = data; renderTable(); }
+      });
+  }, 15000);
+}
+
+document.getElementById('modalOverlay').addEventListener('click', function(e) {
+  if (e.target === e.currentTarget) closeModal();
+});
+
+buildUI();
+loadFromFirebase();
+startPolling();
+</script>
+</body>
+</html>
